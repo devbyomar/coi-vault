@@ -1,0 +1,184 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ──────────────────────────────────────────────────
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum Plan {
+  FREE
+  PRO
+  TEAM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+enum DocumentType {
+  COI
+  WSIB
+  OTHER
+}
+
+enum AuditAction {
+  VENDOR_CREATED
+  VENDOR_DELETED
+  DOCUMENT_ADDED
+  DOCUMENT_DELETED
+  SUBSCRIPTION_UPDATED
+  ACCOUNT_DELETED
+  MEMBER_INVITED
+  MEMBER_REMOVED
+}
+
+// ─── USER ───────────────────────────────────────────────────
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  name           String?
+  passwordHash   String
+  emailVerified  DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  memberships    Membership[]
+  auditLogs      AuditLog[]
+
+  @@index([email])
+  @@index([deletedAt])
+}
+
+// ─── ORGANIZATION ───────────────────────────────────────────
+
+model Organization {
+  id          String        @id @default(cuid())
+  name        String
+  deletedAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  memberships   Membership[]
+  vendors       Vendor[]
+  subscription  Subscription?
+  auditLogs     AuditLog[]
+
+  @@index([deletedAt])
+}
+
+// ─── MEMBERSHIP ─────────────────────────────────────────────
+
+model Membership {
+  id        String   @id @default(cuid())
+  role      Role     @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+  @@index([userId])
+}
+
+// ─── SUBSCRIPTION ───────────────────────────────────────────
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  plan                 Plan               @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  orgId        String       @unique
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+}
+
+// ─── VENDOR ─────────────────────────────────────────────────
+
+model Vendor {
+  id          String     @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  company     String?
+  notes       String?
+  deletedAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  documents VendorDocument[]
+
+  @@index([orgId])
+  @@index([deletedAt])
+}
+
+// ─── VENDOR DOCUMENT ────────────────────────────────────────
+
+model VendorDocument {
+  id         String       @id @default(cuid())
+  title      String
+  type       DocumentType @default(COI)
+  url        String
+  expiryDate DateTime
+  deletedAt  DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([expiryDate])
+  @@index([deletedAt])
+}
+
+// ─── AUDIT LOG ──────────────────────────────────────────────
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  action    AuditAction
+  details   String?
+  createdAt DateTime    @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([action])
+  @@index([createdAt])
+}
