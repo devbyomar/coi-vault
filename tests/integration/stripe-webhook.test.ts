@@ -14,15 +14,17 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 // Mock stripe
-vi.mock("@/lib/stripe", () => ({
-  stripe: {
-    webhooks: {
-      constructEvent: vi.fn(),
-    },
-    subscriptions: {
-      retrieve: vi.fn(),
-    },
+const mockStripeClient = {
+  webhooks: {
+    constructEvent: vi.fn(),
   },
+  subscriptions: {
+    retrieve: vi.fn(),
+  },
+};
+
+vi.mock("@/lib/stripe", () => ({
+  getStripe: () => mockStripeClient,
 }));
 
 describe("Stripe Webhook", () => {
@@ -53,8 +55,7 @@ describe("Stripe Webhook", () => {
   });
 
   it("should return 400 for invalid webhook signature", async () => {
-    const { stripe } = await import("@/lib/stripe");
-    vi.mocked(stripe.webhooks.constructEvent).mockImplementation(() => {
+    mockStripeClient.webhooks.constructEvent.mockImplementation(() => {
       throw new Error("Invalid signature");
     });
 
