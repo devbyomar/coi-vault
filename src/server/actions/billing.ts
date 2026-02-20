@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentOrg } from "@/lib/auth-utils";
 import { createAuditLog } from "@/lib/audit";
 import { getStripe, STRIPE_PLANS } from "@/lib/stripe";
-import { Plan } from "@prisma/client";
 import { redirect } from "next/navigation";
 
 export async function createCheckoutSession(plan: "PRO" | "TEAM") {
