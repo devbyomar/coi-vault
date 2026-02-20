@@ -5,6 +5,21 @@ import { createAuditLog } from "@/lib/audit";
 import { Plan, SubscriptionStatus } from "@prisma/client";
 import Stripe from "stripe";
 
+// Stripe v20 removed current_period_start/end from the Subscription type,
+// but the API still returns them. Use a helper to safely access them.
+function getSubscriptionPeriod(sub: Stripe.Subscription): {
+  currentPeriodStart: Date;
+  currentPeriodEnd: Date;
+} {
+  const raw = sub as unknown as Record<string, unknown>;
+  const start = typeof raw.current_period_start === "number" ? raw.current_period_start : 0;
+  const end = typeof raw.current_period_end === "number" ? raw.current_period_end : 0;
+  return {
+    currentPeriodStart: new Date((start as number) * 1000),
+    currentPeriodEnd: new Date((end as number) * 1000),
+  };
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const sig = req.headers.get("stripe-signature");
@@ -68,6 +83,8 @@ async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
   const priceId = stripeSubscription.items.data[0]?.price.id;
   const plan = getPlanFromPriceId(priceId);
 
+  const period = getSubscriptionPeriod(stripeSubscription);
+
   await prisma.subscription.update({
     where: { orgId },
     data: {
@@ -76,8 +93,8 @@ async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
       stripeSubscriptionId: stripeSubscription.id,
       stripeCustomerId: session.customer as string,
       stripePriceId: priceId,
-      currentPeriodStart: new Date((stripeSubscription as any).current_period_start * 1000),
-      currentPeriodEnd: new Date((stripeSubscription as any).current_period_end * 1000),
+      currentPeriodStart: period.currentPeriodStart,
+      currentPeriodEnd: period.currentPeriodEnd,
     },
   });
 
@@ -102,14 +119,16 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   if (subscription.status === "canceled") status = SubscriptionStatus.CANCELED;
   if (subscription.status === "trialing") status = SubscriptionStatus.TRIALING;
 
+  const period = getSubscriptionPeriod(subscription);
+
   await prisma.subscription.update({
     where: { id: sub.id },
     data: {
       plan,
       status,
       stripePriceId: priceId,
-      currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
-      currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+      currentPeriodStart: period.currentPeriodStart,
+      currentPeriodEnd: period.currentPeriodEnd,
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
     },
   });
@@ -144,11 +163,12 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {
-  const subscriptionId = (invoice as any).subscription;
+  const raw = invoice as unknown as Record<string, unknown>;
+  const subscriptionId = typeof raw.subscription === "string" ? raw.subscription : null;
   if (!subscriptionId) return;
 
   const sub = await prisma.subscription.findUnique({
-    where: { stripeSubscriptionId: subscriptionId as string },
+    where: { stripeSubscriptionId: subscriptionId },
   });
   if (!sub) return;
 
